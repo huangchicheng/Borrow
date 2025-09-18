@@ -1,0 +1,380 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>興嘉國小 — 器材借用（點選器材）</title>
+  <style>
+    body{font-family:system-ui,Arial;padding:1rem;max-width:940px;margin:auto}
+    h1{text-align:center;margin:0 0 .6rem}
+    .grid{display:grid;grid-template-columns:repeat(8,1fr);gap:.4rem}
+    .btn{padding:.5rem;border-radius:6px;border:1px solid #cfcfcf;background:#fafafa;text-align:center;cursor:pointer;user-select:none}
+    .btn.active{background:#d0ecff;border-color:#7fbfff}
+    .seat{width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:6px;border:1px solid #999;cursor:pointer;font-weight:700}
+    .seat.sel{background:#d4f8d4}
+    .equip-group{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.4rem}
+    .equip-btn{padding:.5rem .8rem;border-radius:8px;border:1px solid #bbb;background:#fff;cursor:pointer;display:flex;gap:.5rem;align-items:center}
+    .equip-btn.active{background:#ffd; border-color:#f6b500}
+    .primary{padding:.7rem 1rem;background:#007bff;color:#fff;border:none;border-radius:8px;cursor:pointer}
+    .small{font-size:.9rem;color:#555}
+    .list{margin-top:1rem}
+    .item{padding:.45rem .6rem;border-radius:6px;border:1px solid #ddd;margin-bottom:.4rem;display:flex;gap:.6rem;align-items:center;background:#fff}
+    .hint{font-size:.95rem;color:#666;margin-bottom:.5rem}
+    .class-badge{display:inline-block;background:#eef6ff;border:1px solid #cbe6ff;padding:2px 6px;border-radius:6px;margin-right:8px;font-weight:700;color:#176fb1}
+    .row-left{display:flex;align-items:center;gap:.6rem;flex:1;min-width:0}
+    .meta{font-size:.9rem;color:#666}
+    .return-btn{padding:.35rem .6rem;border-radius:6px;border:1px solid #cfcfcf;background:#fff;cursor:pointer}
+    .return-btn.busy{opacity:0.6;pointer-events:none}
+    .batch-controls{display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem}
+    .controls-top{display:flex;gap:.6rem;align-items:center;justify-content:space-between;margin-bottom:.6rem}
+  </style>
+</head>
+<body>
+  <h1>興嘉國小 — 器材借用系統</h1>
+
+  <div class="hint">步驟：選日期 → 選班級（借用時）→ 選座號 → 點選器材 → 確認借用。下方清單顯示該日期所有尚未歸還紀錄，支援單筆「歸還」按鈕與批次勾選後一鍵「批次歸還」。</div>
+
+  <div class="controls-top">
+    <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+      <label class="small" style="margin-right:.4rem">日期：</label>
+      <input type="date" id="date"/>
+      <div class="small" style="margin-left:8px;color:#888">也可用 ?class=1年1班 固定班級 (借用時)</div>
+    </div>
+    <div>
+      <button id="manualRefresh" class="return-btn">重新整理清單</button>
+    </div>
+  </div>
+
+  <div>
+    <div class="small">選擇班級（借用用）：</div>
+    <div id="grades" class="grid" style="margin-top:.4rem"></div>
+  </div>
+
+  <div id="classArea" style="display:none;margin-top:.8rem">
+    <div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1">
+        <div class="small">座號（可多選）：</div>
+        <div id="seats" style="display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.4rem"></div>
+      </div>
+
+      <div style="min-width:260px">
+        <div class="small">器材（點選以選擇）：</div>
+
+        <div id="equipmentGroup" class="equip-group" role="radiogroup" aria-label="器材選擇">
+          <button class="equip-btn" data-equip="樂樂棒" role="radio" aria-checked="false">🏏 樂樂棒</button>
+          <button class="equip-btn" data-equip="飛盤" role="radio" aria-checked="false">🛸 飛盤</button>
+          <button class="equip-btn" data-equip="跳繩" role="radio" aria-checked="false">🔗 跳繩</button>
+        </div>
+
+        <div style="height:8px"></div>
+        <button id="confirmBtn" class="primary" style="width:100%">確認借用</button>
+      </div>
+    </div>
+
+    <div class="hint" style="margin-top:.6rem">下方清單為「該日期所有尚未歸還」：可勾選多筆後按「批次歸還」，或直接按每列的「歸還」按鈕一次完成。</div>
+
+    <div class="batch-controls">
+      <label><input type="checkbox" id="selectAll"> 全選</label>
+      <button id="batchReturn" class="return-btn">批次歸還</button>
+      <div id="batchStatus" class="small" style="margin-left:8px;color:#666"></div>
+    </div>
+
+    <div id="list" class="list"></div>
+  </div>
+
+<script>
+  // ---------- 請確認這裡是你部署好的 Apps Script Web App URL ----------
+  const scriptURL = "https://script.google.com/macros/s/AKfycbz6jU30lhpFvXAEgIj92lHYPitnzJVdDjKu4tzY3zd2RKamV4xZGHyV4p8jHsOkNG9Znw/exec";
+  // ---------------------------------------------------------------------
+
+  const dateEl = document.getElementById('date');
+  dateEl.value = new Date().toISOString().split('T')[0];
+
+  const gradesEl = document.getElementById('grades');
+  const seatsEl = document.getElementById('seats');
+  const classArea = document.getElementById('classArea');
+  const listEl = document.getElementById('list');
+  const equipmentGroup = document.getElementById('equipmentGroup');
+  const confirmBtn = document.getElementById('confirmBtn');
+  const selectAllCb = document.getElementById('selectAll');
+  const batchReturnBtn = document.getElementById('batchReturn');
+  const batchStatus = document.getElementById('batchStatus');
+  const manualRefresh = document.getElementById('manualRefresh');
+
+  // 建班級按鈕
+  for (let g = 1; g <= 6; g++) {
+    for (let c = 1; c <= 8; c++) {
+      const btn = document.createElement('div');
+      btn.className = 'btn';
+      btn.innerHTML = `<div style="font-weight:700">${g}${String(c).padStart(2,'0').slice(-2)}</div><div style="font-size:.8rem;color:#666">${g}年${c}班</div>`;
+      btn.dataset.classFull = `${g}年${c}班`;
+      btn.addEventListener('click', () => selectClass(btn));
+      gradesEl.appendChild(btn);
+    }
+  }
+
+  // 建座號
+  for (let i = 1; i <= 25; i++) {
+    const s = document.createElement('div');
+    s.className = 'seat';
+    s.textContent = i;
+    s.dataset.seat = i;
+    s.addEventListener('click', () => s.classList.toggle('sel'));
+    seatsEl.appendChild(s);
+  }
+
+  let currentClass = '';
+  let selectedEquipment = '';
+
+  equipmentGroup.querySelectorAll('.equip-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const equip = btn.dataset.equip;
+      if (selectedEquipment === equip) {
+        selectedEquipment = '';
+        equipmentGroup.querySelectorAll('.equip-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-checked','false'); });
+      } else {
+        selectedEquipment = equip;
+        equipmentGroup.querySelectorAll('.equip-btn').forEach(b => { 
+          if (b.dataset.equip === equip) { b.classList.add('active'); b.setAttribute('aria-checked','true'); }
+          else { b.classList.remove('active'); b.setAttribute('aria-checked','false'); }
+        });
+      }
+    });
+    btn.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); btn.click(); }});
+  });
+
+  function selectClass(btn) {
+    document.querySelectorAll('#grades .btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentClass = btn.dataset.classFull;
+    classArea.style.display = 'block';
+    clearSeatSelection();
+    // refresh full-date list so new borrowings visible
+    fetchList();
+  }
+
+  function clearSeatSelection() { document.querySelectorAll('.seat.sel').forEach(s => s.classList.remove('sel')); }
+
+  // fetchList: 取得該日期所有未歸還 (cache-busted)，並 retry 若第一次空但最近剛新增
+  async function fetchList(retry = true) {
+    listEl.innerHTML = '<div class="small">載入中...</div>';
+    const date = dateEl.value;
+    if (!date) { listEl.innerHTML = '<div class="small">請先選擇日期</div>'; return; }
+    try {
+      const url = `${scriptURL}?date=${encodeURIComponent(date)}&_ts=${Date.now()}`; // cache-bust
+      const r = await fetch(url, { cache: "no-store" });
+      const j = await r.json();
+      const rows = j.rows || [];
+      // 如果剛剛新增了但讀不到（0 筆），嘗試短暫延遲再拿一次（最多一次）
+      if (!rows.length && retry && window.__justAddedRecent) {
+        // 等待後端寫入穩定
+        await new Promise(res => setTimeout(res, 350));
+        return fetchList(false);
+      }
+      renderList(rows);
+    } catch (err) {
+      console.error('fetchList error', err);
+      listEl.innerHTML = '<div class="small">無法取得資料（請檢查後端）</div>';
+    } finally {
+      // 清掉剛新增 flag
+      window.__justAddedRecent = false;
+    }
+  }
+
+  function renderList(rows) {
+    listEl.innerHTML = '';
+    if (!rows.length) { listEl.innerHTML = '<div class="small">目前無尚未歸還紀錄。</div>'; return; }
+
+    rows.sort((a,b) => {
+      if ((a.className||'') !== (b.className||'')) return (a.className||'').localeCompare(b.className||'', 'zh-Hant');
+      return Number(a.seat) - Number(b.seat);
+    });
+
+    rows.forEach(r => {
+      const item = document.createElement('div');
+      item.className = 'item';
+      item.dataset.row = r.row;
+
+      const classNameDisplay = r.className || r.class || currentClass || '—';
+
+      // checkbox (左)、主要資訊（中）、歸還按鈕（右）
+      item.innerHTML = `
+        <label style="display:flex;align-items:center;gap:.6rem;flex:1;min-width:0">
+          <input type="checkbox" class="row-cb" data-row="${r.row}">
+          <div style="min-width:0">
+            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+              <span class="class-badge">${escapeHtml(classNameDisplay)}</span>
+              <strong>${escapeHtml(String(r.seat))} 號</strong>
+              <span class="meta">— ${escapeHtml(r.equipment || '')}</span>
+            </div>
+            <div class="small" style="margin-top:4px">${escapeHtml(r.timestamp || '')}</div>
+          </div>
+        </label>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <button class="return-btn" data-row="${r.row}">歸還</button>
+        </div>
+      `;
+      listEl.appendChild(item);
+    });
+
+    // attach handlers: single-row return buttons
+    listEl.querySelectorAll('.return-btn').forEach(btn => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const row = btn.dataset.row;
+        btn.classList.add('busy');
+        const originalText = btn.textContent;
+        btn.textContent = '處理中...';
+        try {
+          const ok = await returnRow(row);
+          if (ok) {
+            await fetchList();
+          } else {
+            alert('歸還失敗，請稍後再試');
+            btn.classList.remove('busy');
+            btn.textContent = originalText;
+          }
+        } catch (err) {
+          console.error(err);
+          alert('歸還失敗，請稍後再試');
+          btn.classList.remove('busy');
+          btn.textContent = originalText;
+        }
+      });
+    });
+
+    // attach checkbox behaviour
+    listEl.querySelectorAll('.row-cb').forEach(cb => cb.addEventListener('change', () => {
+      updateSelectAllState();
+    }));
+
+    updateSelectAllState();
+  }
+
+  // helper: update selectAll checkbox based on rows
+  function updateSelectAllState() {
+    const cbs = Array.from(listEl.querySelectorAll('.row-cb'));
+    if (!cbs.length) { selectAllCb.checked = false; selectAllCb.indeterminate = false; return; }
+    const checked = cbs.filter(x=>x.checked).length;
+    selectAllCb.checked = (checked === cbs.length);
+    selectAllCb.indeterminate = (checked>0 && checked < cbs.length);
+  }
+
+  // single return wrapper that returns true/false
+  async function returnRow(row) {
+    try {
+      const params = new URLSearchParams();
+      params.set('action','return');
+      params.set('row', String(row));
+      const res = await fetch(scriptURL, {
+        method: 'POST',
+        headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+        body: params.toString()
+      });
+      const j = await res.json();
+      if (j.error) {
+        console.error('backend error', j.error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error(err);
+      return false;
+    }
+  }
+
+  // batch return handler: collect checked rows and call returnRow sequentially
+  batchReturnBtn.addEventListener('click', async () => {
+    const checked = Array.from(listEl.querySelectorAll('.row-cb')).filter(cb => cb.checked).map(cb => cb.dataset.row);
+    if (!checked.length) { alert('請先勾選要歸還的項目'); return; }
+    if (!confirm(`確定要將 ${checked.length} 筆標記為已歸還嗎？`)) return;
+
+    batchReturnBtn.classList.add('busy');
+    batchReturnBtn.textContent = '處理中...';
+    batchStatus.textContent = `處理 ${checked.length} 筆中...`;
+
+    let successCount = 0;
+    for (let i = 0; i < checked.length; i++) {
+      const row = checked[i];
+      const ok = await returnRow(row);
+      if (ok) successCount++;
+      // optional small delay: await new Promise(r=>setTimeout(r,30));
+    }
+
+    batchReturnBtn.classList.remove('busy');
+    batchReturnBtn.textContent = '批次歸還';
+    batchStatus.textContent = `已處理 ${successCount}/${checked.length} 筆`;
+    await fetchList();
+
+    setTimeout(()=>{ batchStatus.textContent = ''; }, 3000);
+  });
+
+  // selectAll behaviour
+  selectAllCb.addEventListener('change', () => {
+    const checked = selectAllCb.checked;
+    listEl.querySelectorAll('.row-cb').forEach(cb => cb.checked = checked);
+  });
+
+  // manual refresh button
+  manualRefresh.addEventListener('click', () => fetchList());
+
+  // 確認借用（加上穩定化：cache-bust & retry flag）
+  confirmBtn.addEventListener('click', async () => {
+    const date = dateEl.value;
+    if (!date) { alert('請選擇日期'); return; }
+    if (!currentClass) { alert('請選擇班級'); return; }
+    if (!selectedEquipment) { alert('請先點選要借用的器材'); return; }
+    const seats = Array.from(document.querySelectorAll('.seat.sel')).map(s => s.dataset.seat);
+    if (!seats.length) { alert('請至少選一個座號'); return; }
+
+    try {
+      const params = new URLSearchParams();
+      params.set('date', date);
+      params.set('className', currentClass);
+      params.set('equipment', selectedEquipment);
+      params.set('seats', seats.join(','));
+      const res = await fetch(scriptURL, {
+        method: 'POST',
+        headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+        body: params.toString()
+      });
+      const j = await res.json();
+      if (j.error) {
+        alert('後端錯誤：' + j.error);
+      } else {
+        // 標記為剛剛新增過，fetchList 會在空結果時自動 retry
+        window.__justAddedRecent = true;
+        let msg = `新增 ${j.added || 0} 筆`;
+        if (j.skipped && j.skipped.length) msg += `，被忽略 ${j.skipped.length} 筆（已借未還）： ${j.skipped.join(', ')}`;
+        alert(msg);
+        clearSeatSelection();
+
+        // 等 300ms 再抓一次；若仍然沒抓到，fetchList() 內也會做一次 retry
+        setTimeout(()=>fetchList(), 300);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('送出失敗，請稍後再試');
+    }
+  });
+
+  // 支援 ?class=1年1班 固定班級
+  (function checkQuery(){
+    const urlP = new URLSearchParams(window.location.search);
+    const q = urlP.get('class');
+    if (q) {
+      const btn = Array.from(document.querySelectorAll('#grades .btn')).find(b => b.dataset.classFull === q);
+      if (btn) { selectClass(btn); btn.style.pointerEvents='none'; }
+    }
+  })();
+
+  dateEl.addEventListener('change', () => fetchList());
+
+  // initial load
+  fetchList();
+
+  // 安全的 HTML escape
+  function escapeHtml(s){ return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+</script>
+</body>
+</html>
